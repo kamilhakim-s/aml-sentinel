@@ -1,0 +1,3 @@
+pattern_id,start_acc_id,pattern_type,depth,involved_accounts
+pat_0,acc_10,cycle,4,acc_10|acc_23|acc_41|acc_7
+pat_1,acc_3,cycle,5,acc_3|acc_55|acc_18|acc_30|acc_47

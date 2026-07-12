@@ -1,0 +1,10 @@
+tx_id,src_id,dst_id,amount,timestamp,description,embedding
+tx_180,acc_10,acc_23,9999.0,2024-01-01T12:00:00,layered transfer via intermediary,0.7890|-0.3439|-0.9787|0.6637
+tx_181,acc_23,acc_41,9999.0,2024-01-01T12:00:00,offshore transfer to tax haven,-0.9237|0.0867|-0.6783|0.5636
+tx_182,acc_41,acc_7,9999.0,2024-01-01T12:00:00,layered transfer via intermediary,0.0384|-0.7978|0.1491|0.0821
+tx_183,acc_7,acc_10,9999.0,2024-01-01T12:00:00,shell company payment,0.0244|0.2785|0.6580|0.0434
+tx_184,acc_3,acc_55,9999.0,2024-01-01T12:00:00,shell company payment,0.4842|-0.0862|0.9806|-0.6324
+tx_185,acc_55,acc_18,9999.0,2024-01-01T12:00:00,offshore transfer to tax haven,0.4582|0.2280|0.2751|-0.4951
+tx_186,acc_18,acc_30,9999.0,2024-01-01T12:00:00,shell company payment,-0.2006|-0.9734|-0.1628|-0.1589
+tx_187,acc_30,acc_47,9999.0,2024-01-01T12:00:00,round-trip transaction,0.1604|-0.7815|-0.3930|-0.1990
+tx_188,acc_47,acc_3,9999.0,2024-01-01T12:00:00,layered transfer via intermediary,0.9885|0.9217|-0.0758|-0.6709
