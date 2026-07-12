@@ -1,5 +1,6 @@
 # Generated datasets (recreate with `make data`)
 /data/
+/data-*/
 
 # Python
 __pycache__/
