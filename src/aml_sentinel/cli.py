@@ -10,6 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from aml_sentinel import __version__
+from aml_sentinel.detect import DetectionService, DetectorSink
 from aml_sentinel.replay import (
     CollectingSink,
     SynthesisConfig,
@@ -45,7 +46,47 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Where to write per-ring ground truth JSON (default: <data-dir>/ground_truth.json).",
     )
+    dt = sub.add_parser("detect", help="Replay the dataset straight into the detection service.")
+    dt.add_argument("--data-dir", type=Path, default=Path("data"), help="Dataset directory.")
+    dt.add_argument("--seed", type=int, default=42, help="RNG seed for time synthesis.")
+    dt.add_argument("--horizon-days", type=float, default=30, help="Simulated horizon length.")
+    dt.add_argument(
+        "--window-hours", type=float, default=72, help="Rolling graph window (simulated hours)."
+    )
+    dt.add_argument(
+        "--alerts-out",
+        type=Path,
+        default=None,
+        help="Where to write fired alerts JSON (default: <data-dir>/alerts.json).",
+    )
     return parser
+
+
+def _run_detect(args: argparse.Namespace) -> int:
+    dataset = load_dataset(args.data_dir)
+    config = SynthesisConfig(horizon=timedelta(days=args.horizon_days), seed=args.seed)
+    stream, _ = synthesize(dataset, config)
+
+    service = DetectionService(window=timedelta(hours=args.window_hours))
+    stats = asyncio.run(replay(stream, DetectorSink(service), speed=0))
+    detection = service.stats()
+
+    alerts_path: Path = args.alerts_out or args.data_dir / "alerts.json"
+    alerts_path.write_text(json.dumps([a.to_dict() for a in service.alerts], indent=2))
+
+    rate = stats.count / stats.wall_seconds if stats.wall_seconds > 0 else float("inf")
+    print(f"processed {stats.count} transactions in {stats.wall_seconds:.2f}s ({rate:,.0f} tx/s)")
+    print(
+        f"per-tx latency: p50 {detection.latency_p50_us:.0f}us, "
+        f"p99 {detection.latency_p99_us:.0f}us, max {detection.latency_max_us:.0f}us"
+    )
+    total = len(service.alerts)
+    by_typology = (
+        ", ".join(f"{name}={count}" for name, count in sorted(detection.alerts_by_typology.items()))
+        or "none"
+    )
+    print(f"alerts fired: {total} ({by_typology}) -> {alerts_path}")
+    return 0
 
 
 def _run_replay(args: argparse.Namespace) -> int:
@@ -77,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "replay":
         return _run_replay(args)
+    if args.command == "detect":
+        return _run_detect(args)
     raise AssertionError(f"unhandled command {args.command}")
 
 
