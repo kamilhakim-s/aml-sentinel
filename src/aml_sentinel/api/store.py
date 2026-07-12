@@ -98,6 +98,20 @@ class CaseStore:
         with Session(self.engine) as session:
             return list(session.scalars(stmt))
 
+    def stats(self) -> dict[str, Any]:
+        """Case-queue counters for the UI metrics panel."""
+        with Session(self.engine) as session:
+            rows = session.scalars(select(CaseRow)).all()
+        by_typology: dict[str, int] = {}
+        counters = {"total": 0, "open": 0, "disposed": 0, "true_positive": 0, "false_positive": 0}
+        for row in rows:
+            counters["total"] += 1
+            counters[row.status] += 1
+            if row.disposition is not None:
+                counters[row.disposition] += 1
+            by_typology[row.typology] = by_typology.get(row.typology, 0) + 1
+        return {**counters, "by_typology": by_typology}
+
     def dispose_case(self, case_id: int, disposition: str, notes: str | None) -> CaseRow | None:
         if disposition not in DISPOSITIONS:
             raise ValueError(f"invalid disposition {disposition!r}")

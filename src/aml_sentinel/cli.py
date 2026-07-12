@@ -5,14 +5,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
+import logging
 from datetime import timedelta
 from pathlib import Path
 
 from aml_sentinel import __version__
 from aml_sentinel.detect import DetectionService, DetectorSink
+from aml_sentinel.detect.poster import AlertPoster, PostingDetectorSink
 from aml_sentinel.replay import (
     CollectingSink,
+    ReplayStats,
     SynthesisConfig,
     load_dataset,
     replay,
@@ -34,10 +36,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Simulated seconds per wall second (3600 = 1h/s). <=0 emits at full speed.",
     )
     rp.add_argument(
+        "--transport",
+        choices=["direct", "kafka"],
+        default="direct",
+        help="Where to emit: in-process (direct) or a Kafka/Redpanda topic.",
+    )
+    rp.add_argument(
         "--direct",
         action="store_true",
-        help="Bypass Kafka and emit in-process. (Kafka transport lands in a later phase.)",
+        help="Alias for --transport direct (kept for compatibility).",
     )
+    rp.add_argument("--brokers", default="localhost:9092", help="Kafka bootstrap servers.")
+    rp.add_argument("--topic", default="transactions", help="Kafka topic to produce to.")
     rp.add_argument("--seed", type=int, default=42, help="RNG seed for time synthesis.")
     rp.add_argument("--horizon-days", type=float, default=30, help="Simulated horizon length.")
     rp.add_argument(
@@ -59,6 +69,28 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Where to write fired alerts JSON (default: <data-dir>/alerts.json).",
     )
+    dt.add_argument(
+        "--speed",
+        type=float,
+        default=0,
+        help="Simulated seconds per wall second while detecting. <=0 = full speed.",
+    )
+    dt.add_argument(
+        "--api-url",
+        default=None,
+        help="Case API base URL; when set, alerts are POSTed there as they fire.",
+    )
+
+    cn = sub.add_parser(
+        "consume", help="Consume the transactions topic into the detector (compose demo)."
+    )
+    cn.add_argument("--brokers", default="localhost:9092", help="Kafka bootstrap servers.")
+    cn.add_argument("--topic", default="transactions", help="Kafka topic to consume.")
+    cn.add_argument("--api-url", default="http://127.0.0.1:8000", help="Case API base URL.")
+    cn.add_argument(
+        "--window-hours", type=float, default=72, help="Rolling graph window (simulated hours)."
+    )
+    cn.add_argument("--group", default="aml-sentinel-detector", help="Consumer group id.")
 
     sc = sub.add_parser(
         "score", help="Run the detection pipeline and score alerts against ground truth."
@@ -89,7 +121,12 @@ def _run_detect(args: argparse.Namespace) -> int:
     stream, _ = synthesize(dataset, config)
 
     service = DetectionService(window=timedelta(hours=args.window_hours))
-    stats = asyncio.run(replay(stream, DetectorSink(service), speed=0))
+    sink: DetectorSink | PostingDetectorSink
+    if args.api_url is not None:
+        sink = PostingDetectorSink(service, AlertPoster(args.api_url))
+    else:
+        sink = DetectorSink(service)
+    stats = asyncio.run(replay(stream, sink, speed=args.speed))
     detection = service.stats()
 
     alerts_path: Path = args.alerts_out or args.data_dir / "alerts.json"
@@ -131,6 +168,24 @@ def _run_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_consume(args: argparse.Namespace) -> int:
+    from aml_sentinel.detect.consumer import consume_transactions
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    service = asyncio.run(
+        consume_transactions(
+            args.brokers,
+            args.topic,
+            args.api_url,
+            window=timedelta(hours=args.window_hours),
+            group_id=args.group,
+        )
+    )
+    detection = service.stats()
+    print(f"consumed {detection.transactions} transactions, {len(service.alerts)} alerts")
+    return 0
+
+
 def _run_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -142,9 +197,7 @@ def _run_serve(args: argparse.Namespace) -> int:
 
 
 def _run_replay(args: argparse.Namespace) -> int:
-    if not args.direct:
-        print("only --direct mode is implemented so far; pass --direct", file=sys.stderr)
-        return 2
+    transport = "direct" if args.direct else args.transport
 
     dataset = load_dataset(args.data_dir)
     config = SynthesisConfig(horizon=timedelta(days=args.horizon_days), seed=args.seed)
@@ -153,8 +206,16 @@ def _run_replay(args: argparse.Namespace) -> int:
     gt_path: Path = args.ground_truth_out or args.data_dir / "ground_truth.json"
     gt_path.write_text(json.dumps([gt.to_dict() for gt in ground_truth], indent=2))
 
-    sink = CollectingSink()
-    stats = asyncio.run(replay(stream, sink, speed=args.speed))
+    if transport == "kafka":
+        from aml_sentinel.replay.kafka import KafkaSink
+
+        async def _produce() -> ReplayStats:
+            async with KafkaSink(args.brokers, args.topic) as sink:
+                return await replay(stream, sink, speed=args.speed)
+
+        stats = asyncio.run(_produce())
+    else:
+        stats = asyncio.run(replay(stream, CollectingSink(), speed=args.speed))
 
     sim_days = stats.simulated_span_seconds / 86400
     rate = stats.count / stats.wall_seconds if stats.wall_seconds > 0 else float("inf")
@@ -174,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_detect(args)
     if args.command == "score":
         return _run_score(args)
+    if args.command == "consume":
+        return _run_consume(args)
     if args.command == "serve":
         return _run_serve(args)
     raise AssertionError(f"unhandled command {args.command}")

@@ -11,7 +11,7 @@ a case API — scored against ground-truth labels. See [PLAN.md](PLAN.md) for th
 - [x] Phase 1 — replay engine (event-time synthesis, seeded, `--direct` mode)
 - [x] Phase 2 — detection service (rolling graph + typology rules)
 - [x] Phase 3 — case API + scoring
-- [ ] Phase 4 — UI + docker compose demo
+- [x] Phase 4 — UI + docker compose demo
 - [ ] Phase 5 — README + benchmarks
 
 ## Quick start
@@ -66,6 +66,27 @@ traffic. The degree-outlier rule is the opposite trade: perfect precision,
 partial recall, and *negative* latency — it flags mule hubs before the ring
 even completes. Structuring never fires here because each ring account only
 touches two sub-threshold transactions; it exists for realistic data.
+
+## Demo (docker compose)
+
+```sh
+make data          # once, offline
+docker compose up  # Redpanda + Postgres + detector + API/UI + one-shot replay
+```
+
+Then open http://localhost:8000: the replay job produces the 90K-tx stream to
+the Redpanda `transactions` topic at 1 simulated day every 2 seconds (~60s
+total), the detector consumes it and POSTs alerts to the case API, and the UI
+shows them arrive live over a websocket. Click a case to see its evidence
+subgraph (rendered as plain SVG — cycles are drawn as, well, cycles), then
+dispose it as a true or false positive; the stat tiles update as you work.
+
+For local development without Docker:
+
+```sh
+uv run aml-sentinel serve &                        # API + UI on :8000, SQLite
+uv run aml-sentinel detect --api-url http://127.0.0.1:8000 --speed 86400
+```
 
 The upstream generator writes constant placeholder timestamps, so the replay
 engine synthesizes event times over a configurable horizon (default 30 days,

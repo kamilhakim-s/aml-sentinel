@@ -30,6 +30,18 @@ class Transaction:
             "description": self.description,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, str | float]) -> Transaction:
+        """Inverse of to_dict; used by the Kafka consumer."""
+        return cls(
+            tx_id=str(data["tx_id"]),
+            src=str(data["src"]),
+            dst=str(data["dst"]),
+            amount=float(data["amount"]),
+            event_time=datetime.fromisoformat(str(data["event_time"])),
+            description=str(data["description"]),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Edge:
