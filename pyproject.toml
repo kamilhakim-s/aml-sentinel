@@ -6,7 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Kamil Hakim" }]
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+    "sqlalchemy>=2.0",
+    "uvicorn>=0.32",
+]
 
 [project.scripts]
 aml-sentinel = "aml_sentinel.cli:main"
@@ -17,6 +21,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "hypothesis>=6.100",
+    "httpx2>=2.5.0",
 ]
 
 [build-system]

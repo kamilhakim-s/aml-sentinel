@@ -59,6 +59,27 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Where to write fired alerts JSON (default: <data-dir>/alerts.json).",
     )
+
+    sc = sub.add_parser(
+        "score", help="Run the detection pipeline and score alerts against ground truth."
+    )
+    sc.add_argument("--data-dir", type=Path, default=Path("data"), help="Dataset directory.")
+    sc.add_argument("--seed", type=int, default=42, help="RNG seed for time synthesis.")
+    sc.add_argument("--horizon-days", type=float, default=30, help="Simulated horizon length.")
+    sc.add_argument(
+        "--window-hours", type=float, default=72, help="Rolling graph window (simulated hours)."
+    )
+    sc.add_argument(
+        "--report-out",
+        type=Path,
+        default=None,
+        help="Also write the report (markdown + .json sibling) to this path.",
+    )
+
+    sv = sub.add_parser("serve", help="Run the case API (FastAPI/uvicorn).")
+    sv.add_argument("--db", default="sqlite:///cases.db", help="SQLAlchemy database URL.")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8000)
     return parser
 
 
@@ -86,6 +107,37 @@ def _run_detect(args: argparse.Namespace) -> int:
         or "none"
     )
     print(f"alerts fired: {total} ({by_typology}) -> {alerts_path}")
+    return 0
+
+
+def _run_score(args: argparse.Namespace) -> int:
+    from aml_sentinel.scoring import score_alerts
+
+    dataset = load_dataset(args.data_dir)
+    config = SynthesisConfig(horizon=timedelta(days=args.horizon_days), seed=args.seed)
+    stream, ground_truth = synthesize(dataset, config)
+
+    service = DetectionService(window=timedelta(hours=args.window_hours))
+    asyncio.run(replay(stream, DetectorSink(service), speed=0))
+
+    report = score_alerts(service.alerts, ground_truth)
+    print(report.to_markdown())
+
+    if args.report_out is not None:
+        args.report_out.write_text(report.to_markdown() + "\n")
+        json_path = args.report_out.with_suffix(".json")
+        json_path.write_text(json.dumps(report.to_dict(), indent=2))
+        print(f"\nreport written to {args.report_out} and {json_path}")
+    return 0
+
+
+def _run_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from aml_sentinel.api import create_app, make_engine
+
+    app = create_app(make_engine(args.db))
+    uvicorn.run(app, host=args.host, port=args.port)
     return 0
 
 
@@ -120,6 +172,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_replay(args)
     if args.command == "detect":
         return _run_detect(args)
+    if args.command == "score":
+        return _run_score(args)
+    if args.command == "serve":
+        return _run_serve(args)
     raise AssertionError(f"unhandled command {args.command}")
 
 
