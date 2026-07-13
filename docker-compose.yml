@@ -1,0 +1,92 @@
+# Full demo: docker compose up  (run `make data` once first)
+#
+#   redpanda   <- replay (one-shot producer, paced at 1 sim day / 2s)
+#   detector   <- consumes topic, POSTs alerts to the API
+#   api + UI   -> http://localhost:8000  (Postgres-backed case store)
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      # dev-container mode enables auto topic creation by default
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health --exit-when-healthy || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel
+      POSTGRES_DB: sentinel
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command:
+      - serve
+      - --db=postgresql+psycopg://sentinel:sentinel@postgres/sentinel
+      - --host=0.0.0.0
+      - --port=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  detector:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command:
+      - consume
+      - --brokers=redpanda:9092
+      - --topic=transactions
+      - --api-url=http://api:8000
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  replay:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command:
+      - replay
+      - --transport=kafka
+      - --brokers=redpanda:9092
+      - --topic=transactions
+      - --speed=43200 # 1 simulated day every 2 seconds -> ~60s demo
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      detector:
+        condition: service_started
+    restart: "no"

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AML Sentinel</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>AML Sentinel</h1>
+      <span id="ws-status" class="ws-status" title="live feed">connecting…</span>
+    </div>
+    <div id="stats" class="stats">
+      <div class="tile"><span class="tile-value" id="stat-total">–</span><span class="tile-label">cases</span></div>
+      <div class="tile"><span class="tile-value" id="stat-open">–</span><span class="tile-label">open</span></div>
+      <div class="tile"><span class="tile-value" id="stat-tp">–</span><span class="tile-label">true positive</span></div>
+      <div class="tile"><span class="tile-value" id="stat-fp">–</span><span class="tile-label">false positive</span></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="queue">
+      <h2>Alert queue</h2>
+      <ul id="alert-list"></ul>
+      <p id="queue-empty" class="empty">Waiting for alerts…</p>
+    </section>
+
+    <section class="case">
+      <h2 id="case-title">Case detail</h2>
+      <p id="case-empty" class="empty">Select an alert to inspect its evidence.</p>
+      <div id="case-body" hidden>
+        <div class="case-meta" id="case-meta"></div>
+        <svg id="subgraph" viewBox="0 0 460 320" role="img" aria-label="evidence subgraph"></svg>
+        <table id="evidence">
+          <thead>
+            <tr><th>tx</th><th>from</th><th>to</th><th class="num">amount</th><th>time</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="dispose">
+          <button id="btn-tp" class="tp">True positive</button>
+          <button id="btn-fp" class="fp">False positive</button>
+          <span id="dispose-state"></span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

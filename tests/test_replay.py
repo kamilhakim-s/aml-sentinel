@@ -63,10 +63,14 @@ def test_cli_replay_direct(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     assert all(gt["first_hop_time"] <= gt["last_hop_time"] for gt in ground_truth)
 
 
-def test_cli_requires_direct(capsys: pytest.CaptureFixture[str]) -> None:
-    rc = main(["replay", "--data-dir", str(FIXTURE_DIR)])
-    assert rc == 2
-    assert "--direct" in capsys.readouterr().err
+def test_cli_replay_defaults_to_direct_transport(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = main(
+        ["replay", "--data-dir", str(FIXTURE_DIR), "--ground-truth-out", str(tmp_path / "g.json")]
+    )
+    assert rc == 0
+    assert "replayed 189 transactions" in capsys.readouterr().out
 
 
 def test_transaction_to_dict_roundtrip(dataset: Dataset) -> None:
