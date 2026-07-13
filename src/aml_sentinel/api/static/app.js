@@ -237,6 +237,11 @@ function connectWs() {
   };
 }
 
-loadAlerts().then(refreshStats);
+loadAlerts().then(() => {
+  refreshStats();
+  // deep link: /?case=7 opens a case directly (shareable from case reviews)
+  const wanted = Number(new URLSearchParams(location.search).get("case"));
+  if (wanted && knownCases.has(wanted)) selectCase(wanted);
+});
 connectWs();
 setInterval(refreshStats, 10_000);

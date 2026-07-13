@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catching a laundering ring the moment it closes — AML Sentinel</title>
+<meta name="description" content="A build log: writing a streaming anti-money-laundering transaction monitor with a rolling graph, typology rules, an analyst case UI, and honest metrics.">
+<style>
+:root {
+  --bg: #fdfdfb;
+  --ink: #1c1c1a;
+  --ink-2: #52524c;
+  --ink-3: #8a897e;
+  --line: #e4e3dc;
+  --card: #f4f3ee;
+  --accent: #2a78d6;
+  --tp: #008300;
+  --fp: #c73e3d;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --ink: #ececea;
+    --ink-2: #b6b5ab;
+    --ink-3: #83827a;
+    --line: #33332e;
+    --card: #1f1f1d;
+    --accent: #3987e5;
+    --tp: #1baf7a;
+    --fp: #e66767;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 17px/1.65 Charter, Georgia, "Times New Roman", serif;
+}
+main { max-width: 43rem; margin: 0 auto; padding: 3.5rem 1.25rem 5rem; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.35rem; margin: 2.6rem 0 0.8rem; letter-spacing: -0.01em; }
+p { margin: 0 0 1.1rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.meta { color: var(--ink-3); font-size: 0.95rem; margin-bottom: 2.2rem; }
+.meta a { color: var(--ink-3); }
+figure { margin: 1.6rem 0; }
+figure img {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--line); border-radius: 8px;
+}
+figcaption { font-size: 0.88rem; color: var(--ink-3); margin-top: 0.5rem; line-height: 1.5; }
+pre {
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.9rem 1rem; overflow-x: auto;
+  font: 0.82rem/1.55 var(--mono); color: var(--ink-2);
+}
+code { font: 0.86em var(--mono); background: var(--card); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+table {
+  width: 100%; border-collapse: collapse; margin: 1.2rem 0;
+  font-size: 0.85rem; font-family: system-ui, sans-serif;
+}
+th, td { padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink-3); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.aside {
+  border-left: 3px solid var(--line); padding: 0.1rem 0 0.1rem 1rem;
+  color: var(--ink-2); font-size: 0.95rem; margin: 1.4rem 0;
+}
+hr { border: none; border-top: 1px solid var(--line); margin: 2.8rem 0; }
+.footer { color: var(--ink-3); font-size: 0.92rem; }
+
+/* ---- replay widget ---- */
+#replay {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  padding: 1rem 1.1rem; margin: 1.6rem 0; font-family: system-ui, sans-serif;
+}
+#replay header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.7rem;
+}
+#replay .clock { font: 600 0.95rem var(--mono); color: var(--ink); }
+#replay .counts { font-size: 0.8rem; color: var(--ink-3); }
+#replay button {
+  font: 600 0.85rem system-ui, sans-serif; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.35rem 0.9rem; cursor: pointer;
+}
+#replay button:hover { border-color: var(--ink-3); }
+#feed { list-style: none; margin: 0.6rem 0 0; padding: 0; min-height: 13.5rem; }
+#feed li {
+  display: flex; gap: 0.55rem; align-items: baseline;
+  font-size: 0.84rem; padding: 0.28rem 0.2rem;
+  border-bottom: 1px solid var(--line);
+  animation: arrive 0.5s ease-out;
+}
+#feed li:last-child { border-bottom: none; }
+@keyframes arrive { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+#feed .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
+#feed .name { color: var(--ink); font-weight: 500; }
+#feed .detail { color: var(--ink-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+#replay .note { font-size: 0.78rem; color: var(--ink-3); margin: 0.7rem 0 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Catching a laundering ring the moment it closes</h1>
+<p class="meta">Kamil Hakim · July 2026 · a build log for
+<a href="https://github.com/kamilhakim-s/aml-sentinel">aml-sentinel</a></p>
+
+<p>Somewhere between 2 and 5 percent of global GDP gets laundered every year —
+the UN's estimate, so take the error bars seriously, but even the low end is
+around a trillion dollars. The share that gets intercepted is usually quoted
+in single-digit percentages. Meanwhile banks collectively spend tens of
+billions a year on compliance and still eat fines like TD Bank's $3B in 2024
+for monitoring failures.</p>
+
+<p>That gap bugged me enough that I spent a few weeks building a transaction
+monitor from scratch: a system that watches a stream of payments, keeps a
+rolling graph of who paid whom, and raises an alert with attached evidence the
+instant a laundering pattern completes. Then it grades its own homework
+against ground-truth labels, which is something production AML systems
+fundamentally cannot do. This post is about how it works, what the numbers
+came out to, and where it's honestly still a toy.</p>
+
+<h2>What banks actually run today</h2>
+
+<p>If you've never worked near one, the surprising thing about bank AML
+monitoring is how much of it is <em>batch</em>. The core pattern, mostly
+unchanged for twenty years: extract the day's transactions overnight, run a
+few hundred "scenarios" over them (vendor platforms like NICE Actimize,
+Oracle's Mantas lineage, or SAS dominate here), and drop the hits into an
+alert queue that human analysts work through the next day. A first-line
+analyst triages, a second line investigates, and a small fraction of alerts
+end up as Suspicious Activity Reports filed with the regulator.</p>
+
+<p>Two numbers define the analyst experience. The false-positive rate on
+scenario alerts is commonly put above 90% — most of what the queue contains
+is noise that still legally has to be looked at. And the latency floor is a
+day, because the pipeline is nightly. A layering ring that moves money
+through five mule accounts in an afternoon is long done before the batch job
+even starts.</p>
+
+<p>The industry knows this. Instant-payment rails (FedNow, SEPA Instant, PIX)
+are forcing screening decisions into the seconds range, and every vendor now
+sells a "real-time" tier. But the installed base — the thing most compliance
+teams actually operate — is batch scenarios plus a case-management tool, and
+the alert usually arrives as a scenario name and a score. The analyst then
+reconstructs what actually happened by querying three other systems.</p>
+
+<h2>What I wanted to test</h2>
+
+<p>The project, <a href="https://github.com/kamilhakim-s/aml-sentinel">AML
+Sentinel</a>, is my attempt at the version of this I'd want to operate:</p>
+
+<p><strong>Streaming, not batch.</strong> Detection runs per transaction
+against a rolling in-memory graph, so a cycle alert fires on the exact
+transaction that closes the loop — not the next morning.</p>
+
+<p><strong>Evidence first.</strong> An alert isn't a score; it's the subgraph
+that caused it. The analyst UI renders the actual accounts and hops so the
+disposition decision takes seconds, not a swivel-chair investigation.</p>
+
+<p><strong>Scored, not vibes.</strong> The data is synthetic
+(<a href="https://github.com/SantanderAI/gen-fraud-graph">gen-fraud-graph</a>,
+Santander's generator), which is a real limitation — but it means I have
+labels, so I can publish precision, recall, and detection latency instead of
+claiming the rules "work".</p>
+
+<p>Stack-wise it's Python 3.12 and asyncio end to end: a replay engine that
+turns the generated CSVs into a live stream (through Redpanda, or in-process
+for dev), the detection service, a FastAPI case API backed by Postgres, and a
+small no-build-step UI. One <code>docker compose up</code> runs the whole
+thing.</p>
+
+<h2>The build, in the order it surprised me</h2>
+
+<p><strong>The data lies about time.</strong> First real discovery: the
+generator writes a constant timestamp on every row — literally every normal
+transaction says <code>2024-01-01T10:00:00</code>. Cycle detection over a
+time window is meaningless without event times, so the replay engine
+synthesizes them: normal traffic spread uniformly over a simulated month,
+each fraud ring given a random start with one-to-thirty-minute gaps between
+hops, all from a seeded RNG so runs reproduce exactly. I kept a hard rule
+here that ended up shaping the whole design: fraud labels never touch the
+stream. The detector consumes transactions that look identical whether
+they're injected fraud or noise; ground truth goes into a separate file only
+the scorer reads.</p>
+
+<p><strong>The graph is the easy part if the stream is sorted.</strong> The
+rolling graph holds 72 simulated hours of edges. Because the replay emits in
+time order, eviction is embarrassingly cheap: the global expiry deque and
+each account's adjacency deque are appended in the same order, so expiring an
+edge is a couple of <code>popleft()</code>s — O(1), no scanning. The same
+trick applies to the statistics: the graph maintains degree sum and
+sum-of-squares incrementally, so "is this account's degree three standard
+deviations above the population?" is an O(1) question, not a 100K-account
+scan per transaction.</p>
+
+<p><strong>Three rules, three personalities.</strong> Cycle detection runs a
+bounded DFS from each new edge's destination back to its source (depth ≤ 7,
+with an expansion budget so a pathological hub can't stall the stream) and
+scores by amount uniformity — moving the same $9,999 around a loop is the
+classic layering signature. A structuring rule watches for repeated
+just-under-$10,000 transactions on one account inside 24 hours. And a
+statistical rule flags high-value transactions into accounts whose rolling
+degree is anomalous, which is deliberately not tuned to anything the
+generator injects.</p>
+
+<p><strong>Everything after detection is an analyst product.</strong> Alerts
+POST into a case API; the UI gets them pushed over a websocket, renders the
+evidence subgraph as plain SVG (a laundering cycle drawn on a circle is
+satisfyingly literal), and offers exactly two buttons: true positive, false
+positive. That two-button workflow is the actual job of an AML analyst,
+compressed. One dumb hour lost here: bare uvicorn silently doesn't speak
+websocket — the UI said "reconnecting…" forever until I realized the
+protocol library is a separate install.</p>
+
+<figure>
+  <img src="assets/ui-case.png" alt="AML Sentinel case view: a seven-account laundering cycle rendered as a circular directed graph, with the evidence transaction table and a true-positive disposition" width="1440" height="1250" loading="lazy">
+  <figcaption>Case #42: a seven-hop ring, caught on the closing transaction.
+  Every hop is $9,999 — amount uniformity pushes the score to 1.00. The
+  evidence table below the graph is the complete audit trail; the analyst has
+  already marked it a true positive.</figcaption>
+</figure>
+
+<h2>Watching a month go by</h2>
+
+<p>The compose demo replays 30 simulated days of traffic in about a minute.
+Rather than embed a video of that, here's the real thing: the widget below
+replays the actual 42 alerts from a seed-42 run over the 90,055-transaction
+dataset, on the same compressed clock the demo uses.</p>
+
+<div id="replay">
+  <header>
+    <span class="clock" id="rp-clock">2024-01-01 00:00</span>
+    <span class="counts" id="rp-counts">0 alerts</span>
+    <button id="rp-btn">Play 30 days</button>
+  </header>
+  <ul id="feed"></ul>
+  <p class="note">Not a recording — these are the 42 alerts the detector
+  actually fired on the seed-42 dataset, replayed at ~1 simulated day per
+  second. Blue dots are cycle alerts, green are degree outliers.</p>
+</div>
+
+<p>Two things I like watching in this feed. Alerts cluster — rings are
+injected at random times, but the degree-outlier rule often fires mid-ring,
+a few minutes <em>before</em> the cycle rule confirms it, which is exactly
+the early-warning behavior you'd want from a statistical rule. And the
+2-account and 3-account cycles scattered through the month are mostly
+<em>not</em> fraud: they're ordinary payment loops that random traffic forms
+naturally. Which brings us to the numbers.</p>
+
+<figure>
+  <img src="assets/ui-queue.png" alt="AML Sentinel alert queue with stat tiles showing 42 cases, 40 open, one true positive and one false positive" width="1440" height="900" loading="lazy">
+  <figcaption>The analyst queue after a full replay: 42 cases, colored by
+  typology, newest first. The tiles track triage progress.</figcaption>
+</figure>
+
+<h2>The numbers, honestly read</h2>
+
+<p>Everything below is seed 42, single process, on a laptop.
+<code>aml-sentinel score</code> reproduces it.</p>
+
+<table>
+<thead><tr><th>Scale</th><th>Transactions</th><th>Throughput</th><th>p50 / p99 per-tx</th></tr></thead>
+<tbody>
+<tr><td>0.001 (10K accounts)</td><td>90,055</td><td>~195K tx/s</td><td>4 µs / 17 µs</td></tr>
+<tr><td>0.01 (100K accounts)</td><td>900,059</td><td>~138K tx/s</td><td>5 µs / 23 µs</td></tr>
+</tbody>
+</table>
+
+<table>
+<thead><tr><th>Typology (scale 0.001)</th><th>Precision</th><th>Recall</th><th>Median latency</th></tr></thead>
+<tbody>
+<tr><td>cycle</td><td>0.29</td><td>10/10 rings</td><td>0s</td></tr>
+<tr><td>degree outlier</td><td>1.00</td><td>6/10 rings</td><td>−1,879s</td></tr>
+</tbody>
+</table>
+
+<p>The row I find most instructive is the one that looks worst. Cycle
+detection catches every injected ring with zero latency — it literally fires
+on the closing hop — but 24 of its 34 alerts are false positives, and at 10×
+the traffic that precision drops from 0.29 to 0.24. Those false positives
+aren't bugs; they're genuine cycles that random commerce forms inside a 72-hour
+window. That is the actual shape of rules-based AML: the rule that never
+misses is the rule that buries your analysts. The degree-outlier rule is the
+mirror image — perfect precision, 60% recall, and <em>negative</em> median
+latency, meaning it flagged the mule account before the ring finished
+building. And the structuring rule never fired at all, because each ring
+account only touches two sub-threshold transactions and I refused to lower
+the threshold to flatter the generator. A rule tuned to synthetic artifacts
+would tell you nothing.</p>
+
+<h2>So is this better than what banks run?</h2>
+
+<p>In three specific ways, I'd argue yes — and they're the three I'd defend
+in an interview. Detection is event-time streaming, so the latency floor is
+the transaction itself rather than tonight's batch window; with instant
+payments becoming default rails, that's the direction the industry has to
+move anyway. Alerts carry their evidence, so triage is a look-and-decide
+instead of a cross-system investigation. And the whole pipeline is measured
+— synthetic labels let me state recall, which no production deployment can
+even define for itself.</p>
+
+<p>And in the ways that pay compliance teams' salaries, no. There's no entity
+resolution — a real launderer uses twelve accounts at four banks under three
+spellings of their name, and matching those is harder than any typology rule.
+There's no tuning governance, no SAR workflow, no regulator. The state lives
+in one process's memory. And above all, the data is synthetic and easy: the
+injected fraud uses a fixed amount and distinctive descriptions, so perfect
+recall here says little about recall on real traffic (the separability
+problem is tracked upstream as
+<a href="https://github.com/SantanderAI/gen-fraud-graph/issues/27">gen-fraud-graph#27</a>).
+The README's limitations
+section is titled "read this before being impressed" for a reason.</p>
+
+<h2>Where it goes from here</h2>
+
+<p>The three extensions I've designed but not built: swapping the in-memory
+graph for Neo4j behind the same five-method interface (durability in exchange
+for the microsecond latencies), contributing harder typologies and realistic
+amounts upstream so the precision numbers start meaning something, and
+horizontal scaling — the Kafka producer already keys by source account, so
+partition-per-detector is mostly wiring plus a second-stage join for
+boundary-crossing cycles.</p>
+
+<p>The code, the metrics report, and the one-command demo are all in
+<a href="https://github.com/kamilhakim-s/aml-sentinel">the repository</a>.
+If you run <code>make data && docker compose up</code>, the month of traffic
+you just watched above will happen again on your machine, live, in about a
+minute.</p>
+
+<hr>
+<p class="footer">Written by Kamil Hakim. Built with Python 3.12, Redpanda,
+FastAPI, and a fixed $9,999. Data is synthetic; no actual money was
+laundered in the making of this project.</p>
+
+<script>
+const FEED = [{"t":"cycle","s":0.7575,"at":"2024-01-02T09:15","n":2},{"t":"cycle","s":0.7781,"at":"2024-01-03T07:25","n":4},{"t":"cycle","s":0.5993,"at":"2024-01-05T02:41","n":7},{"t":"cycle","s":0.7457,"at":"2024-01-05T04:14","n":7},{"t":"cycle","s":0.6964,"at":"2024-01-05T18:55","n":6},{"t":"high_value_degree_outlier","s":0.5294,"at":"2024-01-05T22:13","n":1},{"t":"cycle","s":1.0,"at":"2024-01-05T23:00","n":5},{"t":"cycle","s":0.6421,"at":"2024-01-06T16:21","n":4},{"t":"cycle","s":0.6998,"at":"2024-01-07T14:28","n":7},{"t":"cycle","s":1.0,"at":"2024-01-09T04:18","n":5},{"t":"high_value_degree_outlier","s":0.5594,"at":"2024-01-09T18:21","n":1},{"t":"high_value_degree_outlier","s":0.7055,"at":"2024-01-09T18:44","n":1},{"t":"cycle","s":1.0,"at":"2024-01-09T19:22","n":4},{"t":"cycle","s":0.6614,"at":"2024-01-10T02:36","n":5},{"t":"cycle","s":0.5801,"at":"2024-01-10T05:33","n":2},{"t":"cycle","s":0.6921,"at":"2024-01-10T08:53","n":4},{"t":"cycle","s":0.891,"at":"2024-01-11T04:01","n":3},{"t":"cycle","s":1.0,"at":"2024-01-14T22:09","n":7},{"t":"cycle","s":0.6549,"at":"2024-01-16T16:35","n":3},{"t":"cycle","s":0.5632,"at":"2024-01-17T18:56","n":5},{"t":"cycle","s":0.7251,"at":"2024-01-18T15:21","n":5},{"t":"cycle","s":0.5278,"at":"2024-01-18T16:57","n":2},{"t":"cycle","s":1.0,"at":"2024-01-19T21:24","n":4},{"t":"cycle","s":0.6637,"at":"2024-01-19T22:22","n":2},{"t":"high_value_degree_outlier","s":0.5392,"at":"2024-01-20T03:06","n":1},{"t":"cycle","s":1.0,"at":"2024-01-20T03:15","n":7},{"t":"cycle","s":0.8761,"at":"2024-01-20T16:15","n":3},{"t":"cycle","s":0.7056,"at":"2024-01-21T06:18","n":2},{"t":"cycle","s":1.0,"at":"2024-01-21T08:41","n":6},{"t":"high_value_degree_outlier","s":0.5386,"at":"2024-01-21T08:41","n":1},{"t":"cycle","s":1.0,"at":"2024-01-21T14:01","n":4},{"t":"cycle","s":0.5989,"at":"2024-01-21T16:11","n":2},{"t":"cycle","s":0.5252,"at":"2024-01-22T14:28","n":3},{"t":"cycle","s":0.8844,"at":"2024-01-23T15:40","n":5},{"t":"cycle","s":0.6035,"at":"2024-01-25T17:08","n":7},{"t":"cycle","s":0.7948,"at":"2024-01-26T07:00","n":3},{"t":"cycle","s":0.6549,"at":"2024-01-28T19:03","n":5},{"t":"high_value_degree_outlier","s":0.538,"at":"2024-01-30T04:18","n":1},{"t":"cycle","s":1.0,"at":"2024-01-30T04:34","n":6},{"t":"high_value_degree_outlier","s":0.6779,"at":"2024-01-30T04:34","n":1},{"t":"high_value_degree_outlier","s":0.536,"at":"2024-01-30T05:36","n":1},{"t":"cycle","s":1.0,"at":"2024-01-30T06:41","n":7}];
+const NAMES = { cycle: "cycle", high_value_degree_outlier: "degree outlier" };
+const COLORS = { cycle: "#3987e5", high_value_degree_outlier: "#1baf7a" };
+const START = new Date("2024-01-01T00:00:00");
+const END = new Date("2024-01-31T00:00:00");
+const DURATION_MS = 32000; // ~1 simulated day per second
+const feedEl = document.getElementById("feed");
+const clockEl = document.getElementById("rp-clock");
+const countsEl = document.getElementById("rp-counts");
+const btn = document.getElementById("rp-btn");
+let timer = null;
+
+function fmt(d) {
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+
+function run() {
+  clearInterval(timer);
+  feedEl.replaceChildren();
+  btn.textContent = "Restart";
+  const t0 = performance.now();
+  let next = 0;
+  const counts = {};
+  timer = setInterval(() => {
+    const frac = Math.min((performance.now() - t0) / DURATION_MS, 1);
+    const simNow = new Date(START.getTime() + frac * (END - START));
+    clockEl.textContent = fmt(simNow);
+    while (next < FEED.length && new Date(FEED[next].at) <= simNow) {
+      const a = FEED[next++];
+      counts[a.t] = (counts[a.t] || 0) + 1;
+      const li = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = COLORS[a.t] || "#888";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = NAMES[a.t] || a.t;
+      const detail = document.createElement("span");
+      detail.className = "detail";
+      detail.textContent = `${a.n} accts · score ${a.s.toFixed(2)} · ${a.at.replace("T", " ")}`;
+      li.append(dot, name, detail);
+      feedEl.prepend(li);
+      while (feedEl.children.length > 9) feedEl.lastChild.remove();
+      const total = next;
+      countsEl.textContent = Object.entries(counts)
+        .map(([t, n]) => `${NAMES[t] || t}: ${n}`)
+        .join(" · ") + ` (${total} total)`;
+    }
+    if (frac >= 1) { clearInterval(timer); btn.textContent = "Play again"; }
+  }, 60);
+}
+btn.addEventListener("click", run);
+</script>
+
+</main>
+</body>
+</html>
