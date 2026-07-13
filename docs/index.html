@@ -107,12 +107,12 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.8rem 0; }
 <body>
 <main>
 
-<h1>Catching a laundering ring the moment it closes</h1>
-<p class="meta">Kamil Hakim · July 2026 · a build log for
+<h1>Catching A Laundering Ring The Moment It Closes</h1>
+<p class="meta">Kamilhakim S. · July 2026 · a build log for
 <a href="https://github.com/kamilhakim-s/aml-sentinel">aml-sentinel</a></p>
 
-<p>Somewhere between 2 and 5 percent of global GDP gets laundered every year —
-the UN's estimate, so take the error bars seriously, but even the low end is
+<p>Somewhere between 2 and 5 percent of global GDP gets laundered every year by
+The United Nation's estimate, so take the error bars seriously, but even the low end is
 around a trillion dollars. The share that gets intercepted is usually quoted
 in single-digit percentages. Meanwhile banks collectively spend tens of
 billions a year on compliance and still eat fines like TD Bank's $3B in 2024
@@ -124,7 +124,7 @@ rolling graph of who paid whom, and raises an alert with attached evidence the
 instant a laundering pattern completes. Then it grades its own homework
 against ground-truth labels, which is something production AML systems
 fundamentally cannot do. This post is about how it works, what the numbers
-came out to, and where it's honestly still a toy.</p>
+came out to, and where it's honestly still a side project.</p>
 
 <h2>What banks actually run today</h2>
 
@@ -156,15 +156,15 @@ reconstructs what actually happened by querying three other systems.</p>
 <p>The project, <a href="https://github.com/kamilhakim-s/aml-sentinel">AML
 Sentinel</a>, is my attempt at the version of this I'd want to operate:</p>
 
-<p><strong>Streaming, not batch.</strong> Detection runs per transaction
+<p><strong>Streaming.</strong> Detection runs per transaction
 against a rolling in-memory graph, so a cycle alert fires on the exact
-transaction that closes the loop — not the next morning.</p>
+transaction that closes the loop.</p>
 
 <p><strong>Evidence first.</strong> An alert isn't a score; it's the subgraph
 that caused it. The analyst UI renders the actual accounts and hops so the
-disposition decision takes seconds, not a swivel-chair investigation.</p>
+disposition decision takes seconds instead of hours.</p>
 
-<p><strong>Scored, not vibes.</strong> The data is synthetic
+<p><strong>Scored.</strong> The data is synthetic
 (<a href="https://github.com/SantanderAI/gen-fraud-graph">gen-fraud-graph</a>,
 Santander's generator), which is a real limitation — but it means I have
 labels, so I can publish precision, recall, and detection latency instead of
@@ -215,9 +215,7 @@ POST into a case API; the UI gets them pushed over a websocket, renders the
 evidence subgraph as plain SVG (a laundering cycle drawn on a circle is
 satisfyingly literal), and offers exactly two buttons: true positive, false
 positive. That two-button workflow is the actual job of an AML analyst,
-compressed. One dumb hour lost here: bare uvicorn silently doesn't speak
-websocket — the UI said "reconnecting…" forever until I realized the
-protocol library is a separate install.</p>
+compressed.</p>
 
 <figure>
   <img src="assets/ui-case.png" alt="AML Sentinel case view: a seven-account laundering cycle rendered as a circular directed graph, with the evidence transaction table and a true-positive disposition" width="1440" height="1250" loading="lazy">
@@ -260,7 +258,7 @@ naturally. Which brings us to the numbers.</p>
   typology, newest first. The tiles track triage progress.</figcaption>
 </figure>
 
-<h2>The numbers, honestly read</h2>
+<h2>The numbers</h2>
 
 <p>Everything below is seed 42, single process, on a laptop.
 <code>aml-sentinel score</code> reproduces it.</p>
@@ -282,8 +280,7 @@ naturally. Which brings us to the numbers.</p>
 </table>
 
 <p>The row I find most instructive is the one that looks worst. Cycle
-detection catches every injected ring with zero latency — it literally fires
-on the closing hop — but 24 of its 34 alerts are false positives, and at 10×
+detection catches every injected ring with zero latency, but 24 of its 34 alerts are false positives, and at 10×
 the traffic that precision drops from 0.29 to 0.24. Those false positives
 aren't bugs; they're genuine cycles that random commerce forms inside a 72-hour
 window. That is the actual shape of rules-based AML: the rule that never
@@ -297,8 +294,7 @@ would tell you nothing.</p>
 
 <h2>So is this better than what banks run?</h2>
 
-<p>In three specific ways, I'd argue yes — and they're the three I'd defend
-in an interview. Detection is event-time streaming, so the latency floor is
+<p>In three specific ways, I'd argue yes. Detection is event-time streaming, so the latency floor is
 the transaction itself rather than tonight's batch window; with instant
 payments becoming default rails, that's the direction the industry has to
 move anyway. Alerts carry their evidence, so triage is a look-and-decide
@@ -309,7 +305,7 @@ even define for itself.</p>
 <p>And in the ways that pay compliance teams' salaries, no. There's no entity
 resolution — a real launderer uses twelve accounts at four banks under three
 spellings of their name, and matching those is harder than any typology rule.
-There's no tuning governance, no SAR workflow, no regulator. The state lives
+There's no tuning governance or SAR workflow or regulator. The state lives
 in one process's memory. And above all, the data is synthetic and easy: the
 injected fraud uses a fixed amount and distinctive descriptions, so perfect
 recall here says little about recall on real traffic (the separability
@@ -335,8 +331,8 @@ you just watched above will happen again on your machine, live, in about a
 minute.</p>
 
 <hr>
-<p class="footer">Written by Kamil Hakim. Built with Python 3.12, Redpanda,
-FastAPI, and a fixed $9,999. Data is synthetic; no actual money was
+<p class="footer">Built with Python 3.12, Redpanda,
+FastAPI, and a fixed $9,999. No actual money was
 laundered in the making of this project.</p>
 
 <script>
